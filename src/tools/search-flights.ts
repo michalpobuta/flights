@@ -31,7 +31,7 @@ export const searchFlightsSchema = z.object({
     .optional()
     .describe("Maximum price in PLN"),
   sources: z
-    .array(z.enum(["kiwi", "amadeus", "serpapi", "ryanair", "skyscanner", "flightapi"]))
+    .array(z.enum(["kiwi", "amadeus", "serpapi", "ryanair", "kiwi_rapid", "flightapi"]))
     .optional()
     .describe("Which providers to query (default: all available)"),
 });

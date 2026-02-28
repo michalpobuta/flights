@@ -1,4 +1,4 @@
-export type FlightSource = "kiwi" | "amadeus" | "serpapi" | "ryanair" | "skyscanner" | "flightapi";
+export type FlightSource = "kiwi" | "amadeus" | "serpapi" | "ryanair" | "kiwi_rapid" | "flightapi";
 
 export interface NormalizedFlight {
   id: string;

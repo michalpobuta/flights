@@ -72,7 +72,7 @@ export function formatCompareTable(
   lines.push("| Source | Cheapest | Airline | Flight | Stops | Duration | Baggage |");
   lines.push("|--------|----------|---------|--------|-------|----------|---------|");
 
-  const sources = ["kiwi", "amadeus", "serpapi", "ryanair", "skyscanner", "flightapi"] as const;
+  const sources = ["kiwi", "amadeus", "serpapi", "ryanair", "kiwi_rapid", "flightapi"] as const;
   for (const src of sources) {
     const srcFlights = bySource.get(src);
     if (!srcFlights || srcFlights.length === 0) {

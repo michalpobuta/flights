@@ -7,13 +7,13 @@ import type {
 } from "./provider.js";
 import { RateLimiter } from "../utils/rate-limiter.js";
 
-const RAPIDAPI_HOST = "sky-scrapper.p.rapidapi.com";
+const RAPIDAPI_HOST = "kiwi-com-cheap-flights.p.rapidapi.com";
 const BASE_URL = `https://${RAPIDAPI_HOST}`;
 
 export class SkyscannerProvider implements IFlightProvider {
-  readonly name = "skyscanner" as const;
+  readonly name = "kiwi_rapid" as const;
   private readonly apiKey: string;
-  private readonly limiter = new RateLimiter(3, 1); // 3 tokens, 1/sec refill
+  private readonly limiter = new RateLimiter(3, 1);
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
@@ -27,233 +27,159 @@ export class SkyscannerProvider implements IFlightProvider {
     await this.limiter.acquire();
 
     const query = new URLSearchParams({
-      originSkyId: params.origin,
-      destinationSkyId: params.destination,
-      originEntityId: "",
-      destinationEntityId: "",
-      date: params.date_from,
-      cabinClass: "economy",
-      adults: String(params.passengers),
+      source: params.origin,
+      destination: params.destination,
+      departure: params.date_from,
       currency: "PLN",
-      market: "PL",
-      countryCode: "PL",
-      sortBy: "best",
+      adults: String(params.passengers),
     });
+
+    const endpoint = params.return_date_from ? "round-trip" : "one-way";
 
     if (params.return_date_from) {
-      query.set("returnDate", params.return_date_from);
+      query.set("return", params.return_date_from);
     }
 
-    const resp = await fetch(
-      `${BASE_URL}/api/v2/flights/searchFlightsWebComplete?${query}`,
-      {
-        headers: {
-          "X-RapidAPI-Key": this.apiKey,
-          "X-RapidAPI-Host": RAPIDAPI_HOST,
-        },
-      }
-    );
-
-    if (!resp.ok) {
-      throw new Error(`Skyscanner API error: ${resp.status} ${resp.statusText}`);
-    }
-
-    const data = (await resp.json()) as SkyscannerSearchResponse;
-    return this.parseSearchResults(data, params);
-  }
-
-  async exploreDestinations(params: ExploreParams): Promise<ExploreResult[]> {
-    await this.limiter.acquire();
-
-    const query = new URLSearchParams({
-      originSkyId: params.origin,
-      travelDate: params.date_from,
-      currency: "PLN",
+    const resp = await fetch(`${BASE_URL}/${endpoint}?${query}`, {
+      headers: {
+        "X-RapidAPI-Key": this.apiKey,
+        "X-RapidAPI-Host": RAPIDAPI_HOST,
+      },
     });
 
-    const resp = await fetch(
-      `${BASE_URL}/api/v1/flights/searchFlightEverywhere?${query}`,
-      {
-        headers: {
-          "X-RapidAPI-Key": this.apiKey,
-          "X-RapidAPI-Host": RAPIDAPI_HOST,
-        },
-      }
-    );
-
     if (!resp.ok) {
-      throw new Error(`Skyscanner API error: ${resp.status} ${resp.statusText}`);
+      throw new Error(`Kiwi RapidAPI error: ${resp.status} ${resp.statusText}`);
     }
 
-    const data = (await resp.json()) as SkyscannerExploreResponse;
-    return this.parseExploreResults(data, params);
+    const data = (await resp.json()) as KiwiRapidResponse;
+    return this.parseItineraries(data, params);
   }
 
-  private parseSearchResults(
-    data: SkyscannerSearchResponse,
+  async exploreDestinations(_params: ExploreParams): Promise<ExploreResult[]> {
+    // This API doesn't have an explore/everywhere endpoint
+    return [];
+  }
+
+  private parseItineraries(
+    data: KiwiRapidResponse,
     params: SearchParams
   ): NormalizedFlight[] {
     const results: NormalizedFlight[] = [];
-    const context = data.data?.context;
-    const itineraries = data.data?.itineraries;
 
-    if (!itineraries) return results;
+    for (const itin of data.itineraries ?? []) {
+      const segments = itin.sector?.sectorSegments ?? [];
+      if (segments.length === 0) continue;
 
-    // Build lookup maps from context
-    const places = new Map<string, SkyscannerPlace>();
-    for (const p of context?.places ?? []) {
-      places.set(p.entityId, p);
-    }
-    const carriers = new Map<string, SkyscannerCarrier>();
-    for (const c of context?.carriers ?? []) {
-      carriers.set(String(c.id), c);
-    }
+      const firstSeg = segments[0].segment;
+      const lastSeg = segments[segments.length - 1].segment;
+      if (!firstSeg || !lastSeg) continue;
 
-    const buckets = [
-      ...(itineraries.buckets ?? []),
-    ];
+      const carrier = firstSeg.carrier;
+      const price = parseFloat(itin.price?.amount ?? "0");
 
-    for (const bucket of buckets) {
-      for (const item of bucket.items ?? []) {
-        const leg = item.legs?.[0];
-        if (!leg) continue;
+      if (params.max_price && price > params.max_price) continue;
 
-        const segment = leg.segments?.[0];
-        const carrier = segment
-          ? carriers.get(String(segment.marketingCarrierId))
-          : undefined;
+      const stops = Math.max(0, segments.length - 1);
+      if (stops > params.max_stops) continue;
 
-        const originPlace = places.get(leg.originPlaceId ?? "");
-        const destPlace = places.get(leg.destinationPlaceId ?? "");
+      const durationSec = itin.sector?.duration ?? 0;
 
-        const flight: NormalizedFlight = {
-          id: `skyscanner-${item.id ?? leg.id ?? ""}`,
-          source: "skyscanner",
-          airline: carrier?.name ?? segment?.marketingCarrier?.name ?? "Unknown",
-          airline_code: carrier?.alternateId ?? segment?.marketingCarrier?.alternateId ?? "",
-          flight_number: segment
-            ? `${segment.marketingCarrier?.alternateId ?? ""}${segment.flightNumber ?? ""}`
-            : "",
-          origin: originPlace?.iata ?? leg.originStationCode ?? params.origin,
-          destination: destPlace?.iata ?? leg.destinationStationCode ?? params.destination,
-          departure_time: leg.departure ?? "",
-          arrival_time: leg.arrival ?? "",
-          duration_minutes: leg.durationInMinutes ?? 0,
-          stops: leg.stopCount ?? 0,
-          price: item.price?.raw ?? 0,
-          currency: "PLN",
-          deep_link: item.deeplink ?? undefined,
-          cabin_class: "economy",
-          baggage_included: false,
-        };
+      const flight: NormalizedFlight = {
+        id: `kiwi_rapid-${itin.id ?? itin.legacyId ?? ""}`,
+        source: "kiwi_rapid",
+        airline: carrier?.name ?? "Unknown",
+        airline_code: carrier?.code ?? "",
+        flight_number: carrier
+          ? `${carrier.code}${firstSeg.code ?? ""}`
+          : "",
+        origin:
+          firstSeg.source?.station?.code ?? params.origin,
+        destination:
+          lastSeg.destination?.station?.code ?? params.destination,
+        departure_time: firstSeg.source?.utcTime ?? "",
+        arrival_time: lastSeg.destination?.utcTime ?? "",
+        duration_minutes: Math.round(durationSec / 60),
+        stops,
+        price,
+        currency: "PLN",
+        deep_link: this.buildDeepLink(itin),
+        cabin_class:
+          firstSeg.cabinClass?.toLowerCase() ?? "economy",
+        baggage_included:
+          (itin.bagsInfo?.includedHandBags ?? 0) > 0 ||
+          (itin.bagsInfo?.includedCheckedBags ?? 0) > 0,
+      };
 
-        if (params.max_price && flight.price > params.max_price) continue;
-        if (flight.stops > params.max_stops) continue;
-
-        results.push(flight);
-      }
+      results.push(flight);
     }
 
     return results;
   }
 
-  private parseExploreResults(
-    data: SkyscannerExploreResponse,
-    params: ExploreParams
-  ): ExploreResult[] {
-    const results: ExploreResult[] = [];
-    const items = data.data ?? [];
-
-    for (const item of items) {
-      if (params.max_price && (item.Payload?.Price ?? 0) > params.max_price) continue;
-
-      results.push({
-        destination: item.Meta?.CountryId ?? "",
-        destination_name: item.Meta?.CountryNameEnglish ?? "",
-        price: item.Payload?.Price ?? 0,
-        currency: item.Payload?.CurrencyId ?? "PLN",
-        departure_date: params.date_from,
-        return_date: params.date_to,
-        source: "skyscanner",
-      });
-
-      if (results.length >= params.limit) break;
-    }
-
-    return results;
+  private buildDeepLink(itin: KiwiRapidItinerary): string | undefined {
+    const booking = itin.bookingOptions?.edges?.[0]?.node;
+    if (!booking?.bookingUrl) return undefined;
+    return `https://www.kiwi.com${booking.bookingUrl}`;
   }
 }
 
-// --- Skyscanner API response types ---
+// --- Kiwi RapidAPI response types ---
 
-interface SkyscannerPlace {
-  entityId: string;
-  iata?: string;
+interface KiwiRapidStation {
+  code?: string;
   name?: string;
 }
 
-interface SkyscannerCarrier {
-  id: string | number;
+interface KiwiRapidLocation {
+  localTime?: string;
+  utcTime?: string;
+  station?: KiwiRapidStation;
+}
+
+interface KiwiRapidCarrier {
   name?: string;
-  alternateId?: string;
+  code?: string;
 }
 
-interface SkyscannerSegment {
-  marketingCarrierId?: number;
-  flightNumber?: string;
-  marketingCarrier?: {
-    name?: string;
-    alternateId?: string;
-  };
+interface KiwiRapidSegment {
+  source?: KiwiRapidLocation;
+  destination?: KiwiRapidLocation;
+  duration?: number;
+  type?: string;
+  code?: string;
+  carrier?: KiwiRapidCarrier;
+  cabinClass?: string;
 }
 
-interface SkyscannerLeg {
+interface KiwiRapidSectorSegment {
+  segment?: KiwiRapidSegment;
+  layover?: unknown;
+}
+
+interface KiwiRapidSector {
+  sectorSegments?: KiwiRapidSectorSegment[];
+  duration?: number;
+}
+
+interface KiwiRapidBookingNode {
+  bookingUrl?: string;
+  token?: string;
+}
+
+interface KiwiRapidItinerary {
   id?: string;
-  originPlaceId?: string;
-  destinationPlaceId?: string;
-  originStationCode?: string;
-  destinationStationCode?: string;
-  departure?: string;
-  arrival?: string;
-  durationInMinutes?: number;
-  stopCount?: number;
-  segments?: SkyscannerSegment[];
-}
-
-interface SkyscannerItineraryItem {
-  id?: string;
-  price?: { raw?: number; formatted?: string };
-  legs?: SkyscannerLeg[];
-  deeplink?: string;
-}
-
-interface SkyscannerBucket {
-  items?: SkyscannerItineraryItem[];
-}
-
-interface SkyscannerSearchResponse {
-  data?: {
-    context?: {
-      places?: SkyscannerPlace[];
-      carriers?: SkyscannerCarrier[];
-    };
-    itineraries?: {
-      buckets?: SkyscannerBucket[];
-    };
+  legacyId?: string;
+  price?: { amount?: string };
+  sector?: KiwiRapidSector;
+  bagsInfo?: {
+    includedCheckedBags?: number;
+    includedHandBags?: number;
+  };
+  bookingOptions?: {
+    edges?: Array<{ node?: KiwiRapidBookingNode }>;
   };
 }
 
-interface SkyscannerExploreItem {
-  Meta?: {
-    CountryId?: string;
-    CountryNameEnglish?: string;
-  };
-  Payload?: {
-    Price?: number;
-    CurrencyId?: string;
-  };
-}
-
-interface SkyscannerExploreResponse {
-  data?: SkyscannerExploreItem[];
+interface KiwiRapidResponse {
+  itineraries?: KiwiRapidItinerary[];
 }

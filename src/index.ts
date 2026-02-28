@@ -43,7 +43,7 @@ const server = new McpServer({
 // Tool 1: search_flights
 server.tool(
   "search_flights",
-  "Search for flights from an airport (default: KRK Krakow) to a specific destination. Returns a list of flights sorted by price with details from multiple sources (Kiwi, Amadeus, Google Flights, Ryanair, Skyscanner, FlightAPI).",
+  "Search for flights from an airport (default: KRK Krakow) to a specific destination. Returns a list of flights sorted by price with details from multiple sources (Kiwi, Amadeus, Google Flights, Ryanair, Kiwi RapidAPI, FlightAPI).",
   searchFlightsSchema.shape,
   async (input) => {
     try {
@@ -89,7 +89,7 @@ server.tool(
 // Tool 3: compare_prices
 server.tool(
   "compare_prices",
-  "Compare flight prices for the same route across all sources (Kiwi, Amadeus, Google Flights, Ryanair, Skyscanner, FlightAPI). Useful for finding the best deal on a specific route and date.",
+  "Compare flight prices for the same route across all sources (Kiwi, Amadeus, Google Flights, Ryanair, Kiwi RapidAPI, FlightAPI). Useful for finding the best deal on a specific route and date.",
   compareSchema.shape,
   async (input) => {
     try {
