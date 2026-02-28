@@ -1,0 +1,15 @@
+node_modules/
+dist/
+
+.env
+.env.*
+!.env.example
+
+*.js
+*.js.map
+*.d.ts
+
+.idea/
+*.swp
+*.swo
+.DS_Store

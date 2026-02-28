@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "flights": {
+      "command": "npx",
+      "args": ["tsx", "/Users/mipb/RiderProjects/flights/src/index.ts"],
+      "cwd": "/Users/mipb/RiderProjects/flights",
+      "env": {
+        "KIWI_API_KEY": "",
+        "AMADEUS_CLIENT_ID": "",
+        "AMADEUS_CLIENT_SECRET": "",
+        "SERPAPI_KEY": "",
+        "RAPIDAPI_KEY": "",
+        "FLIGHTAPI_KEY": ""
+      }
+    }
+  }
+}
